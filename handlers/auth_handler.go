@@ -30,7 +30,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	response, err := h.authUseCase.Login(&req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, response)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 

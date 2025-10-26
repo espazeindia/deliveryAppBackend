@@ -4,7 +4,6 @@ import (
 	"deliveryAppBackend/domain/entities"
 	"deliveryAppBackend/domain/repositories"
 	"deliveryAppBackend/utils"
-	"errors"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -45,10 +44,13 @@ func (uc *AuthUseCase) Login(req *entities.DeliveryPartnerLoginRequest) (*entiti
 		}, nil
 	}
 
-	// Update last login
-	partner.LastLoginAt = time.Now()
-	if err := uc.partnerRepo.Update(partner); err != nil {
-		return nil, err
+	// Update last login using UpdateProfile to avoid _id issues
+	updates := map[string]interface{}{
+		"lastLoginAt": time.Now(),
+	}
+	if err := uc.partnerRepo.UpdateProfile(partner.PartnerID, updates); err != nil {
+		// Log error but don't fail login
+		// In production, use proper logging
 	}
 
 	// Generate JWT token
@@ -141,10 +143,13 @@ func (uc *AuthUseCase) VerifyOTP(req *entities.VerifyOTPRequest) (*entities.OTPR
 		}, nil
 	}
 
-	// Update last login
-	partner.LastLoginAt = time.Now()
-	if err := uc.partnerRepo.Update(partner); err != nil {
-		return nil, err
+	// Update last login using UpdateProfile to avoid _id issues
+	updates := map[string]interface{}{
+		"lastLoginAt": time.Now(),
+	}
+	if err := uc.partnerRepo.UpdateProfile(partner.PartnerID, updates); err != nil {
+		// Log error but don't fail verification
+		// In production, use proper logging
 	}
 
 	// Generate JWT token

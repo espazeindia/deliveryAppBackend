@@ -26,14 +26,29 @@ func (r *DeliveryPartnerMongoRepository) FindByPhoneNumber(phoneNumber string) (
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	var partner entities.DeliveryPartner
-	err := r.collection.FindOne(ctx, bson.M{"phoneNumber": phoneNumber}).Decode(&partner)
+	var result bson.M
+	err := r.collection.FindOne(ctx, bson.M{"phoneNumber": phoneNumber}).Decode(&result)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, nil
 		}
 		return nil, err
 	}
+
+	// Extract and remove _id before conversion
+	var partnerID string
+	if id, ok := result["_id"].(primitive.ObjectID); ok {
+		partnerID = id.Hex()
+		delete(result, "_id") // Remove _id from the map
+	}
+
+	// Convert to entity
+	var partner entities.DeliveryPartner
+	bsonBytes, _ := bson.Marshal(result)
+	bson.Unmarshal(bsonBytes, &partner)
+	
+	// Set PartnerID
+	partner.PartnerID = partnerID
 
 	return &partner, nil
 }
@@ -47,14 +62,23 @@ func (r *DeliveryPartnerMongoRepository) FindByID(partnerID string) (*entities.D
 		return nil, err
 	}
 
-	var partner entities.DeliveryPartner
-	err = r.collection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&partner)
+	var result bson.M
+	err = r.collection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&result)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, errors.New("partner not found")
 		}
 		return nil, err
 	}
+
+	// Remove _id from the map before conversion
+	delete(result, "_id")
+
+	// Convert to entity
+	var partner entities.DeliveryPartner
+	bsonBytes, _ := bson.Marshal(result)
+	bson.Unmarshal(bsonBytes, &partner)
+	partner.PartnerID = objectID.Hex()
 
 	return &partner, nil
 }
@@ -84,9 +108,15 @@ func (r *DeliveryPartnerMongoRepository) Update(partner *entities.DeliveryPartne
 		return err
 	}
 
-	partner.UpdatedAt = time.Now()
+	// Use UpdateOne with $set to only update specific fields
+	update := bson.M{
+		"$set": bson.M{
+			"lastLoginAt": time.Now(),
+			"updatedAt":   time.Now(),
+		},
+	}
 
-	_, err = r.collection.ReplaceOne(ctx, bson.M{"_id": objectID}, partner)
+	_, err = r.collection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
 	return err
 }
 
@@ -110,11 +140,11 @@ func (r *DeliveryPartnerMongoRepository) VerifyOTP(phoneNumber string, otp int) 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	var partner entities.DeliveryPartner
+	var result bson.M
 	err := r.collection.FindOne(ctx, bson.M{
 		"phoneNumber": phoneNumber,
 		"otp":         otp,
-	}).Decode(&partner)
+	}).Decode(&result)
 
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -122,6 +152,21 @@ func (r *DeliveryPartnerMongoRepository) VerifyOTP(phoneNumber string, otp int) 
 		}
 		return nil, err
 	}
+
+	// Extract and remove _id before conversion
+	var partnerID string
+	if id, ok := result["_id"].(primitive.ObjectID); ok {
+		partnerID = id.Hex()
+		delete(result, "_id") // Remove _id from the map
+	}
+
+	// Convert to entity
+	var partner entities.DeliveryPartner
+	bsonBytes, _ := bson.Marshal(result)
+	bson.Unmarshal(bsonBytes, &partner)
+	
+	// Set PartnerID
+	partner.PartnerID = partnerID
 
 	// Check if OTP is expired (valid for 10 minutes)
 	if time.Since(partner.OTPGeneratedAt) > 10*time.Minute {
@@ -140,6 +185,10 @@ func (r *DeliveryPartnerMongoRepository) UpdateProfile(partnerID string, updates
 		return err
 	}
 
+	// Make sure _id is not in updates
+	delete(updates, "_id")
+	delete(updates, "id")
+	
 	updates["updatedAt"] = time.Now()
 
 	_, err = r.collection.UpdateOne(ctx, bson.M{"_id": objectID}, bson.M{"$set": updates})
